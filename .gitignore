@@ -1,0 +1,16 @@
+
+# Gradle
+.gradle/
+build/
+
+# Local configuration
+local.properties
+
+# IDE
+.idea/
+
+# Kotlin build caches
+.kotlin/
+
+# Build outputs
+*.apk

@@ -1,53 +1,121 @@
 package ru.vas1z.walkbreak
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.Button
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.ViewModelProvider
+import ru.vas1z.walkbreak.reminders.NotificationAccess
+import ru.vas1z.walkbreak.reminders.ReminderContract
+import ru.vas1z.walkbreak.ui.WalkBreakRoot
+import ru.vas1z.walkbreak.ui.home.HomeViewModel
+import ru.vas1z.walkbreak.ui.reminders.ReminderSettingsViewModel
+import ru.vas1z.walkbreak.ui.theme.WalkBreakTheme
 
 class MainActivity : ComponentActivity() {
+
+    private var notificationAccess by mutableStateOf(
+        NotificationAccess(
+            permissionGranted = false,
+            notificationsEnabled = false,
+            channelBlocked = false
+        )
+    )
+    private var startWalkFromNotification by mutableStateOf(false)
+
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) {
+        notificationAccess = NotificationAccess.read(this)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        notificationAccess = NotificationAccess.read(this)
+
+        if (savedInstanceState == null &&
+            intent.getBooleanExtra(ReminderContract.EXTRA_START_WALK, false)
+        ) {
+            startWalkFromNotification = true
+            intent.removeExtra(ReminderContract.EXTRA_START_WALK)
+        }
+
+        val container = (application as WalkBreakApp).container
+        val homeViewModel = ViewModelProvider(
+            owner = this,
+            factory = HomeViewModel.factory(
+                repository = container.walkSessionRepository,
+                reminderScheduler = container.reminderScheduler
+            )
+        )[HomeViewModel::class.java]
+        val reminderViewModel = ViewModelProvider(
+            owner = this,
+            factory = ReminderSettingsViewModel.factory(
+                settingsRepository = container.reminderSettingsRepository,
+                slotRepository = container.reminderSlotRepository,
+                scheduler = container.reminderScheduler
+            )
+        )[ReminderSettingsViewModel::class.java]
+
         setContent {
-            MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    HomeScreen()
-                }
+            WalkBreakTheme {
+                WalkBreakRoot(
+                    homeViewModel = homeViewModel,
+                    reminderViewModel = reminderViewModel,
+                    notificationAccess = notificationAccess,
+                    onRequestNotificationAccess = ::requestNotificationAccess,
+                    onOpenNotificationSettings = ::openNotificationSettings,
+                    startWalkRequest = startWalkFromNotification,
+                    onStartWalkRequestHandled = {
+                        startWalkFromNotification = false
+                    }
+                )
             }
         }
     }
-}
 
-@Composable
-private fun HomeScreen() {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text(
-            text = "Встань и иди",
-            style = MaterialTheme.typography.headlineMedium
-        )
-        Text(
-            text = "Пять минут движения — хорошее начало.",
-            modifier = Modifier.padding(top = 12.dp, bottom = 24.dp)
-        )
-        Button(onClick = {}) {
-            Text("Начать ходьбу")
+    override fun onResume() {
+        super.onResume()
+        notificationAccess = NotificationAccess.read(this)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(ReminderContract.EXTRA_START_WALK, false)) {
+            startWalkFromNotification = true
+            intent.removeExtra(ReminderContract.EXTRA_START_WALK)
         }
+    }
+
+    private fun requestNotificationAccess() {
+        val needsPermission = Build.VERSION.SDK_INT >=
+            Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+
+        if (needsPermission) {
+            notificationPermissionLauncher.launch(
+                Manifest.permission.POST_NOTIFICATIONS
+            )
+        } else {
+            NotificationAccess.openSettings(this)
+        }
+    }
+
+    private fun openNotificationSettings() {
+        NotificationAccess.openSettings(this)
     }
 }

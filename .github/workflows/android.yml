@@ -29,6 +29,13 @@ jobs:
       - name: Build debug APK
         run: gradle assembleDebug
 
+      - name: Upload Room schema
+        uses: actions/upload-artifact@v4
+        with:
+          name: room-schema
+          path: app/schemas
+          if-no-files-found: warn
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
